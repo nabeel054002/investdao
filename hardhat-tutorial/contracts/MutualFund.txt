@@ -1,0 +1,191 @@
+//SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
+
+contract MutualFundabc is ERC20, Ownable{
+    uint256 constant price = 0.1 ether;
+    // uint256 constant price 
+    IUniswapV2Router01 uniswap;
+
+    //uint256 eth_unspent; => instead use address.balance;
+
+    mapping (address=>uint256) public balances;
+
+    cryptoBought[] public Portfolio = new cryptoBought[](5);
+    uint256[] public AmountPortfolio;
+    uint recentTime=0;
+    uint8 number=0;
+    struct cryptoBought{
+        address tokenAddress;
+        string tokenName;
+        uint8 decimals;
+        uint256 price;
+        uint256 timeBought;
+    }
+    struct Proposal{
+        address tokenAddress;
+        string tokenName;
+        uint8 decimals;
+        uint256 peopleForYes;
+        uint256 peopleForNay;
+        uint256 votesForYes;
+        uint256 votesForNo;
+        mapping(address => uint256) voters;
+        //mapping for address of voter to number of tokens he used to vote
+        //if final score is positive we buy, else we dont.
+    }
+    enum Vote{
+        Bullish,
+        Bearish
+    }
+    uint public immutable interval;
+    mapping(address=>Proposal) public proposals;
+
+    constructor(address _uniswap, uint updateInterval) ERC20("FundToken","FD"){
+        uniswap = IUniswapV2Router01(_uniswap);
+        interval = 7*updateInterval;
+    }
+
+    function takePart() payable public{
+        require(balances[msg.sender]*10 + msg.value>=price, "atleast 0.1 ether worth");
+        //eth_unspent+= (msg.value/price);
+        //msg.value/price is not gonna give an accurate way to have fractional tokens
+        balances[msg.sender] += msg.value/price;
+        _mint(msg.sender, msg.value/price);
+    }
+
+/*    function showPercentage(address this_guy) public view {
+        return 100*((balances[this_guy])/totalSupply());
+    }*/
+//should i use a mapping or an array
+    function createProposal(address _tokenAddress, string calldata _tokenName, uint8 _decimals) public payable{
+        require(msg.value>=0.01 ether, "feestoadd = 0.1 ether");
+        Proposal storage proposal = proposals[_tokenAddress];
+        proposal.tokenAddress = _tokenAddress;
+        proposal.decimals = _decimals;
+        proposal.peopleForYes=1;
+        proposal.tokenName = _tokenName;
+        proposal.peopleForNay = 0;
+        proposal.votesForYes = balances[msg.sender];
+        proposal.votesForNo = 0;
+        proposal.voters[msg.sender] = balances[msg.sender];
+        // recentTime = 
+        //to avoid spamming of proposals
+        /*mapping(address=>uint256) storage voters_this;
+        voters_this[msg.sender] = balances[msg.sender];
+        //how to optimize this function by not declaring this mapping
+        proposals[_tokenAddress] = Proposal(_tokenAddress, _tokenName, _decimals, 1, 0, balances[msg.sender], voters_this);
+*/
+    }
+
+    function voteOnProposal(address _tokenAddress, Vote vote)public {
+        require(proposals[_tokenAddress].voters[msg.sender] < balances[msg.sender], "user already voted");
+        if(vote==Vote.Bullish){
+            proposals[_tokenAddress].peopleForYes+=1;
+            proposals[_tokenAddress].votesForYes += (balances[msg.sender] - proposals[_tokenAddress].voters[msg.sender]);
+            proposals[_tokenAddress].voters[msg.sender] = balances[msg.sender];
+        }
+        if(vote==Vote.Bearish){
+            //assuming their vote remains the same even after extra minting
+            proposals[_tokenAddress].peopleForNay+=1;
+            proposals[_tokenAddress].votesForNo += (balances[msg.sender] - proposals[_tokenAddress].voters[msg.sender]);
+            proposals[_tokenAddress].voters[msg.sender] = balances[msg.sender];
+        }
+        //can be greater since the individual can liquidate ownership.
+    }
+    //only want 5 assets in our portfolio, a new addition will kickout the previous one
+    function addToPortfolio(Proposal storage proposal, uint256 amountOut, uint8 deadline) internal{
+        //thinking to add this offchain
+        // i am keeping amountOut offchain, due to price manipulation
+        //plus i would actually monitor which proposals get implemented ig...
+        //memory used because it will be called by the contract?
+        if(number<5){
+            cryptoBought storage existing_proposal = Portfolio[number];
+            existing_proposal.decimals = proposal.decimals;
+            existing_proposal.tokenAddress = proposal.tokenAddress;
+            existing_proposal.tokenName = proposal.tokenName;
+            existing_proposal.timeBought = block.timestamp;
+            AmountPortfolio[number] = amountOut;
+            number++;
+            address[] memory path = new address[](2);
+            path[0] = uniswap.WETH();
+            path[1] = existing_proposal.tokenAddress;
+            //we know amount in, rgt, but dont know amount out, and neither the price, 
+            //plus ig its better if we do the calculation of the price offchain 
+            //for path
+    //first element is what you spent, the second one is what you recieve
+            uniswap.swapETHForExactTokens(amountOut, path, address(this), deadline);
+            //what should be in the deadline
+    //         function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline)
+    // returns (uint[] memory amounts);
+
+        } else {
+            uint8 idx = number%5;
+            cryptoBought storage existing_proposal = Portfolio[0];
+            address oldToken = existing_proposal.tokenAddress;
+            existing_proposal.decimals = proposal.decimals;
+            existing_proposal.tokenAddress = proposal.tokenAddress;
+            existing_proposal.tokenName = proposal.tokenName;
+            existing_proposal.timeBought = block.timestamp;
+            uint256 amountIn = AmountPortfolio[idx];
+            AmountPortfolio[0] = amountOut;
+            number += 1;
+            address[] memory path = new address[](2);
+            path[0] = oldToken;
+            path[1] = existing_proposal.tokenAddress;
+            //how to solve for amountout... also since it is minimum
+            uniswap.swapExactTokensForTokens(amountIn, amountOut, path, address(this), deadline);
+            //sell the older tokens and buy the newer tokens
+            // function swapExactTokensForTokens(
+            //     uint amountIn,
+            //     uint amountOutMin,
+            //     address[] calldata path,
+            //     address to,
+            //     uint deadline
+            // ) external returns (uint[] memory amounts);
+            //swap the old portfolio tokens for these ones 
+        }
+    }
+
+    // function addToPortfolio(Proposal storage proposal){
+    //     address tokenToBuy = proposal.tokenAddress;
+    //     if(number<5){
+    //         for(uint8 i; i<5; i++){
+    //             //should i use chainlink`s oracles.... 
+    //             //want someway to get maxmimum output of tokens given a fixed input number of tokens 
+
+    //         }
+    //     }
+    // }
+
+    function checkUpkeep(bytes calldata /* checkData */) external view override returns (bool upkeepNeeded, bytes memory /* performData */) {
+        
+        upkeepNeeded = (block.timestamp - lastTimeStamp) > interval;
+        // We don't use the checkData in this example. The checkData is defined when the Upkeep was registered.
+    }
+
+    function liquidateOwnership(uint256 amountLiquidate) public {
+        //msg.sender to sell its ownership, just return them their tokens
+        require(amountLiquidate <= balances[msg.sender], "Liquidating more than u hv");
+        uint256 balance_user = balances[msg.sender];
+        uint256 total_balance = totalSupply();
+        uint256 ratio = (balance_user/total_balance)*(amountLiquidate/balances[msg.sender]);
+        uint256 amountEth = (address(this).balance)*(ratio);
+        payable(msg.sender).transfer(amountEth);
+        uint8 i;
+        uint256 balance;
+        for(i=0; i<5; i++){
+            balance = ERC20(cryptoBought[i].tokenAddress).balanceOf(address(this));
+            ERC20(cryptoBought[i].tokenAddress).transfer(msg.sender, balance*ratio);
+        }
+        //ERC20(address(this)).approve()
+        //ERC20(address(this)).transferFrom(msg.sender, address(this), amountLiquidate);
+        //burn, how to burn the tokens...
+        ERC20(address(this)).burn(amountLiquidate, msg.sender);
+        balances[msg.sender] -= amountLiquidate;
+
+    }
+}

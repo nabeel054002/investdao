@@ -1,0 +1,14 @@
+different smart contracts
+we have factory that creates many pair markets and act as a registry for the different markets 
+router smart contract = utility helps use uniswap 
+
+we cna even createe our own pairs in uniswap 
+
+for tradaer WETH + trading_fee to the pair
+
+to make shit easy uniswap made router smart contract
+
+we (trader/liquidity provider) interacts with the router
+
+we can even trade using ether with the router, it will covnert it into weth 
+
