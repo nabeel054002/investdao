@@ -14,10 +14,16 @@ contract MutualFundV2 is ERC20Burnable, Ownable, AutomationCompatibleInterface{
         uint deadlineTime;
     }
     propsl[] public deadline;
+    uint public deadline_size=0;
+
     uint public recentTime;
+
     address recentAddress;
+
     uint256 constant price = 0.1 ether;
+
     IUniswapV2Router01 uniswap;
+
     address[] users;
     mapping (address=>uint256) public balances;
 
@@ -76,6 +82,7 @@ contract MutualFundV2 is ERC20Burnable, Ownable, AutomationCompatibleInterface{
         recentTime = block.timestamp;
         recentAddress = proposal.tokenAddress;
         deadline.push(propsl(recentAddress, recentTime));
+        deadline_size+=1;
         
     }
 
@@ -167,6 +174,7 @@ contract MutualFundV2 is ERC20Burnable, Ownable, AutomationCompatibleInterface{
         //We highly recommend revalidating the upkeep in the performUpkeep function
         if ((block.timestamp - recentTime) > interval ) {
             deadline.pop();
+            deadline_size-=1;
             executeProposal(recentAddress);
             recentTime = deadline[deadline.length - 1].deadlineTime;
             recentAddress = deadline[deadline.length - 1].deadlineToken;

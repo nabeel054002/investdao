@@ -5,6 +5,10 @@ require("dotenv").config({path:".env"});
 module.exports = {
   solidity: "0.8.4",
   networks:{
+    hardhatServer:{
+      url:"http://127.0.0.1:8545/",
+      chainId:1,
+    },
     hardhat:{
       forking:{
         enabled:true,
